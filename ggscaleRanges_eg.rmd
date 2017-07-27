@@ -1,0 +1,209 @@
+---
+title: "ggscaleRanges"
+author: "Stuart Archer"
+date: "27/7/2017"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+ggscaleRanges makes ggplot2 coordinate transformations from GRanges or IRanges objects in one line of code. These can be used to make static ggplot2 or ggbio plots of data from genes or genomic regions.
+
+##Brief Howto
+1 - Make a dataframe that maps input coordinates to transformed coordinates by calling `ggscaleRanges()` with a GRanges or IRanges object, and supplying a function that will be used to scale all the range segments. e.g.:
+`mappings_dataframe <- ggscaleRanges(gene_exons, transFun = sqrt)`
+
+`ggscaleDistToRanges()` also creates such a dataframe but the scale will be a smooth function of proximity to GRanges rather than of the range lengths.
+
+2 - In the ggplot call, make a scale transformation object using `approxfun_trans()`, providing it with the previously generated coordinate mapping dataframe as an argument, e.g:
+`scale_x_continuous(trans=approxfun_trans(mappings_dataframe))`
+Additional arguments (...) are passed to `approxfun()`
+
+3 - Optionally, a track linking the old to the new scales can be generated using `makeSLinkTrack()`, which takes the mappings dataframe and returns a ggplot object.
+Additional arguments (...) are passed to `ggplot2::geom_segment`.
+<br>
+
+##Case study
+
+*Load libraries:*
+```{r load libs,  message=F, warning=F}
+knitr::opts_chunk$set(echo = TRUE, fig.width = 12, fig.height = 8)
+library('ggbio')
+library('GenomicFeatures')
+library('rtracklayer')
+library('scales')
+library('reshape')
+library('AnnotationHub')
+source('ggscaleRanges.R')
+```
+
+*Load transcript annotation for human and RNA-seq coverage trace ('score' is the RNA-seq coverage):*
+```{r load data, message=F, warning=F}
+ahub <- AnnotationHub()
+txdb<-ahub[["AH52258"]]
+gtxs <- transcriptsBy(txdb, by = "gene")
+gexons <- exonsBy(txdb, by = "gene")
+texons <- exonsBy(txdb, by = "tx")
+
+mySession <- browserSession()
+genome(mySession) <- "hg19"
+query <- ucscTableQuery(mySession)
+tableName(query) <- "wgEncodeCshlLongRnaSeqGm12878NucleusPapPlusRawSigRep1" #nuclear RNA, + strand
+```
+
+<br>
+
+####The problem:
+Interesting features in genomics data are tiny compared to the surrounding sequences. We can't clearly see read coverage in all exons in a gene from RNA-seq data, for example the RNA-seq coverage of *NASP* shows a different 3' and 5' extremities to the annotation, and delayed splicing of some introns, which cannot be easily discerned.
+
+*Get transcript models for gene NASP from the annotation and get a subset of the coverage data around it +/- 2000 nt:*
+```{r get gene specific data}
+GENE="4678" # entrez ID
+FLANKING = 1000
+
+gn_exons <- gexons[[GENE]] # flat exon list
+gn_transcript_IDs <- gtxs[[GENE]]@elementMetadata$tx_id #get transcript IDs for gene ensgn from gtx
+gn_txmodels <- texons[gn_transcript_IDs]
+gn_range <- range(gn_exons)
+
+# function to insert zero-scoring granges in the gaps in a granges object with a 'score' mcol
+gapScoresToZero <- function(gr){
+  grGaps <- gaps(gr)
+  grGaps <- grGaps[strand(grGaps)==strand(gr)[1] & seqnames(grGaps) == seqnames(gr)[1]]
+  grGaps <- grGaps[queryHits(findOverlaps(grGaps, range(gr)))]
+  mcols(grGaps) <- data.frame(score=0)
+  gr <- c(gr, grGaps)
+  return(gr[order(start(gr))])
+}
+
+rng <- gn_range
+start(rng)<-start(rng)-2*FLANKING
+end(rng)<-end(rng)+2*FLANKING
+range(query) <- rng
+cvrg<-granges(track(query), use.mcols = T)
+strand(cvrg)<-strand(rng)
+cvrg <- gapScoresToZero(cvrg) # will plot coverage of gaps between granges as zero
+```
+
+*Plot coverage and gene models at actual scale:*
+```{r plot unscaled coverage, message=F, warning=F, fig.height = 4}
+xlim <- c(start(gn_range) - FLANKING, end(gn_range) + FLANKING )
+BRKS =  c(0:1000)*2000 + round_any(start(gn_range), 2000) - 2000
+
+unscaled_gm <- autoplot(gn_txmodels) + scale_x_continuous(breaks = BRKS, 
+                                                  labels = trans_format(ggbio:::trans_seq_format('Mb'), math_format(.x))) +
+  theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_cartesian(xlim = c(start(gn_range) - FLANKING, end(gn_range) + FLANKING ))
+
+unscaled_bg <- autoplot(cvrg, geom = "step", aes(x = start, y = score)) + theme_bw() + 
+  coord_cartesian(xlim = c(start(gn_range) - FLANKING, end(gn_range) + FLANKING ))
+
+tracks_all <- tracks(list(unscaled_bg, unscaled_gm), xlim = xlim,
+                     heights = c(1, 0.7), 
+                     main.height = unit(0.8, "npc"), 
+                     scale.height = unit(2.8, "lines"))
+print(tracks_all)
+```
+
+<br>
+<br>
+
+####Segments scaled to cube-root length
+`ggscaleRanges()` makes a 'mappings' dataframe that maps pre-transformed coordinates to post-transformed coordinates, which can be given to `approxfun_trans()` to generate a scale transformation in ggplot2. The unit whose length is used as input to the transformation function is 'segment', which are the disjoined exons / introns over all transcript models for the gene. (See `GenomicRanges::disjoin()`)
+
+*Scale all transcript segments to cube-root length.*
+```{r plot cube root length, message=F, warning=F, }
+mappings <- ggscaleRanges(gn_exons, transFun = function(x){x^(1/3)})
+
+unscaled_gm <- autoplot(gn_txmodels) + scale_x_continuous(breaks = BRKS, 
+                                                  labels = trans_format(ggbio:::trans_seq_format('Mb'), math_format(.x))) +
+  theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+scaled_gm <- autoplot(gn_txmodels) + theme_bw() + 
+  scale_x_continuous(trans = approxfun_trans(mappings))
+
+scaled_bg <- autoplot(cvrg, geom = "step", aes(x = start, y = score)) + theme_bw() + 
+  scale_x_continuous(trans = approxfun_trans(mappings)) 
+
+s.link <- makeSLinkTrack(mappings, linetype='dashed')
+
+tracks_all <- tracks(list(scaled_bg, scaled_gm, s.link, unscaled_gm), xlim = xlim,
+                     heights = c(1, 1, 0.5, 1), 
+                     main.height = unit(1.5, "npc"), 
+                     scale.height = unit(2.8, "lines"))
+print(tracks_all)
+```
+
+<br>
+<br>
+
+####Intronic and exonic segments differently scaled
+Ranges can be scaled with different functions for gaps (for the combined gene models, gaps = constitutive intron regions) with the transFunGaps argument. 
+
+*Scale length to 1 for exonic segments and 2 for intronic, by providing ggscaleRanges with functions that return 1 and 2 respectively:*
+```{r plot data for gene with constant exon lengths, message=F, warning=F}
+mappings <- ggscaleRanges(gn_exons, transFun = function(x){1}, transFunGaps=function(x){2})
+
+unscaled_gm <- autoplot(gn_txmodels) + scale_x_continuous(breaks = BRKS, 
+                                                  labels = trans_format(ggbio:::trans_seq_format('Mb'), math_format(.x))) +
+  theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+scaled_gm <- autoplot(gn_txmodels) + theme_bw() + 
+  scale_x_continuous(trans = approxfun_trans(mappings)) 
+
+scaled_bg <- autoplot(cvrg, geom = "step", aes(x = start, y = score)) + theme_bw() + 
+  scale_x_continuous(trans = approxfun_trans(mappings)) 
+
+s.link <- makeSLinkTrack(mappings, linetype='dashed')
+
+tracks_all <- tracks(list(scaled_bg, scaled_gm, s.link, unscaled_gm), xlim = xlim, 
+                     heights = c(1, 1, 0.5, 1), 
+                     main.height = unit(1.5, "npc"), 
+                     scale.height = unit(2.8, "lines"))
+print(tracks_all)
+```
+
+<br>
+<br>
+
+####Graduating scale, distance from points of interest
+Introducing abrupt scale-changes might not be desirable in some cases, e.g. when it makes the exon boundary coverage drop-off appear sharper than it is. Therefore scale can be smoothly increased with proximity to range or point of interest, e.g. called peaks in ChIP-seq data, by using `ggscaleDistToRanges()` instead of `ggscaleRanges()` to generate the coordinate mapping dataframe. Scale inflexion points are flagged, and within a range the maximum scaling is uniformly applied. 
+
+*Play with `ggscaleDistToRanges()` and `makeSLinkTrack()`, and use ggplot to improvise a scale visualisation:*
+```{r graduating scale as function of distance, message=F, warning=F}
+gn_points <- gn_exons
+end(gn_points) <- start(gn_points) # condense ranges to just exon start points
+
+mappings2 <- ggscaleDistToRanges(gn_points, maxprox = 210, flanking = FLANKING, minprox = 10) # 200 nt left / right of each range are magnified
+all_xlims <- c(min(mappings2$pre), max(mappings2$pre))
+
+unscaled_gm <- autoplot(gn_txmodels) + scale_x_continuous(breaks = BRKS, 
+                                                  labels = trans_format(ggbio:::trans_seq_format('Mb'), math_format(.x))) +
+  theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+scaled_gm <- autoplot(gn_txmodels) + theme_bw() + 
+  scale_x_continuous(trans = approxfun_trans(mappings2)) 
+
+scaled_bg <- autoplot(cvrg, geom = "step", aes(x = start, y = score)) + theme_bw() + 
+  scale_x_continuous(trans = approxfun_trans(mappings2)) 
+
+s.link <- makeSLinkTrack(mappings2, bottom_margin = 0.25, inflexions = 'positive', alpha = 1, linetype = 'dashed') 
+s.link2 <- makeSLinkTrack(mappings2, bottom_margin = 0.25, alpha = 0.02, invert = T)
+
+tickmarks <- ggplot() + 
+  geom_point(data = data.frame(ticks = c(0:10000) * 25 + start(gn_range) - FLANKING), # small crosses every 25 nt
+             aes(x = ticks), y = 0, shape = 3) +
+  geom_point(data = data.frame(ticks = c(0:1000) * 1000 + start(gn_range) - FLANKING), # large crosses every kb
+             aes(x = ticks), y = 0, shape = 3, size = 5) +
+  scale_x_continuous(trans = approxfun_trans(mappings2)) +
+  ylim(c(-0.5,0.5)) + theme_null()
+  
+tracks_all <- tracks(list(s.link2, scaled_bg, scaled_gm, tickmarks, s.link, ggplot() + theme_null(), unscaled_gm),
+                     xlim = all_xlims, heights = c(0.3, 1, 0.7, 0.2, 0.3, 0.08, 0.7), 
+                     main.height = unit(1.5, "npc"), scale.height = unit(2.8, "lines"))
+
+print(tracks_all)
+```
+
+
+
