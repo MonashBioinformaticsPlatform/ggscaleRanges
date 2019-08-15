@@ -1,15 +1,15 @@
 ---
 title: "ggscaleRanges"
 author: "Stuart Archer"
-date: "27/7/2017"
+date: "15/8/2019"
 output:
   html_document: default
   pdf_document: default
 ---
 
-ggscaleRanges makes ggplot2 coordinate transformations from GRanges or IRanges objects in one line of code. These can be used to make static ggplot2 or ggbio plots of data from genes or genomic regions.
+When visualising genomics data, it is sometimes useful to employ variable scales to zoom in on important features. In other words the genomic coordinate scale can be a function of features in the genome, which in R are usually encoded as GRanges objects. *ggscaleRanges* makes ggplot2 coordinate transformations from GRanges (or IRanges) objects in one line of code. These can be used to make ggplot2 or ggbio plots of data from genes or genomic regions.
 
-##Brief Howto
+## Brief Howto
 1 - Make a dataframe that maps input coordinates to transformed coordinates by calling `ggscaleRanges()` with a GRanges or IRanges object, and supplying a function that will be used to scale all the range segments. e.g.:
 `mappings_dataframe <- ggscaleRanges(gene_exons, transFun = sqrt)`
 
@@ -23,7 +23,7 @@ Additional arguments (...) are passed to `approxfun()`
 Additional arguments (...) are passed to `ggplot2::geom_segment`.
 <br>
 
-##Case study
+## Case study
 
 *Load libraries:*
 ```{r load libs,  message=F, warning=F}
@@ -53,7 +53,7 @@ tableName(query) <- "wgEncodeCshlLongRnaSeqGm12878NucleusPapPlusRawSigRep1" #nuc
 
 <br>
 
-####The problem:
+#### The problem:
 Interesting features in genomics data are tiny compared to the surrounding sequences. We can't clearly see read coverage in all exons in a gene from RNA-seq data, for example the RNA-seq coverage of *NASP* shows a different 3' and 5' extremities to the annotation, and delayed splicing of some introns, which cannot be easily discerned.
 
 *Get transcript models for gene NASP from the annotation and get a subset of the coverage data around it +/- 2000 nt:*
@@ -108,11 +108,11 @@ print(tracks_all)
 <br>
 <br>
 
-####Segments scaled to cube-root length
+#### Segments scaled to cube-root length
 `ggscaleRanges()` makes a 'mappings' dataframe that maps pre-transformed coordinates to post-transformed coordinates, which can be given to `approxfun_trans()` to generate a scale transformation in ggplot2. The unit whose length is used as input to the transformation function is 'segment', which are the disjoined exons / introns over all transcript models for the gene. (See `GenomicRanges::disjoin()`)
 
 *Scale all transcript segments to cube-root length.*
-```{r plot cube root length, message=F, warning=F, }
+```{r plot cube root length, message=F, warning=F}
 mappings <- ggscaleRanges(gn_exons, transFun = function(x){x^(1/3)})
 
 unscaled_gm <- autoplot(gn_txmodels) + scale_x_continuous(breaks = BRKS, 
@@ -137,7 +137,7 @@ print(tracks_all)
 <br>
 <br>
 
-####Intronic and exonic segments differently scaled
+#### Intronic and exonic segments differently scaled
 Ranges can be scaled with different functions for gaps (for the combined gene models, gaps = constitutive intron regions) with the transFunGaps argument. 
 
 *Scale length to 1 for exonic segments and 2 for intronic, by providing ggscaleRanges with functions that return 1 and 2 respectively:*
@@ -166,7 +166,7 @@ print(tracks_all)
 <br>
 <br>
 
-####Graduating scale, distance from points of interest
+#### Graduating scale, distance from points of interest
 Introducing abrupt scale-changes might not be desirable in some cases, e.g. when it makes the exon boundary coverage drop-off appear sharper than it is. Therefore scale can be smoothly increased with proximity to range or point of interest, e.g. called peaks in ChIP-seq data, by using `ggscaleDistToRanges()` instead of `ggscaleRanges()` to generate the coordinate mapping dataframe. Scale inflexion points are flagged, and within a range the maximum scaling is uniformly applied. 
 
 *Play with `ggscaleDistToRanges()` and `makeSLinkTrack()`, and use ggplot to improvise a scale visualisation:*
