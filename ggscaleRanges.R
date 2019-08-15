@@ -1,10 +1,18 @@
 setGeneric("ggscaleRanges",
            function(gm, transFun, flanking = 1000,  ...) standardGeneric("ggscaleRanges"))
 
-setMethod("ggscaleRanges", "GenomicRangesORGRangesList", # convert GRanges to IRanges, call again
+## If it is a GRanges/GRangesList, convert to IRanges and call again  
+## NOTE: GenomicRangesORGRangesList AKA GenomicRanges_OR_GenomicRangesList was also called GenomicRanges_OR_GRangesList for a while
+## Use whichever class name applies for current env
+GRGRL_AKAs = c("GenomicRanges_OR_GRangesList", "GenomicRanges_OR_GRangesList","GenomicRangesORGRangesList") # new,old,deprecated 
+GRGRL_ClassName = GRGRL_AKAs[isClass(GRGRL_AKAs)][1]
+setMethod("ggscaleRanges", GRGRL_ClassName, 
           function(gm, transFun, flanking = 1000, ...) 
           {
-            gm <- unlist(gm)
+            tryCatch(gm <- unlist(gm), error = function(e) {
+              print(paste0('cant unlist gm; attempting without unlisting it. Original error: ', e))
+              }
+              )
             if (length(unique(seqnames(gm))) > 1){
               stop("Don't know how to transform position coords from different contigs.")
             }
@@ -41,7 +49,6 @@ setMethod("ggscaleRanges", "IRanges",
             post <- c(0, df.flat$cum.twidth) + df.flat$start[1] - 1
             return(data.frame(pre = pre, post = post))
          })
-
 
 setGeneric("makeSLinkTrack",
            function(mappings, ...) standardGeneric("makeSLinkTrack"))
@@ -99,22 +106,23 @@ setMethod("approxfun_trans", "data.frame",   #if dataframe, split into 2 vectors
           )
 
 
-
 setGeneric("ggscaleDistToRanges",
            function(gm, transFun, flanking = 1000,  ...) standardGeneric("ggscaleDistToRanges"))
 
 
-setMethod("ggscaleDistToRanges", "GenomicRangesORGRangesList", # convert GRanges to IRanges, call again
+setMethod("ggscaleDistToRanges", GRGRL_ClassName, #"GenomicRangesORGRangesList", ## convert GRanges to IRanges, call again
           function(gm, transFun, flanking = 1000, ...) 
           {
-            gm <- unlist(gm)
+            tryCatch(gm <- unlist(gm), error = function(e) {
+              print(paste0('cant unlist gm; attempting without unlisting it. Original error: ', e))
+              }
+              )
             if (length(unique(seqnames(gm))) > 1){
               stop("Don't know how to transform position coords from different contigs.")
             }
             gm <- IRanges(start = start(gm), end = end(gm))
             "ggscaleDistToRanges"(gm, transFun, flanking = flanking, ...)
           })
-
 
 setMethod("ggscaleDistToRanges", "IRanges",
           function(gm, flanking = 1000, maxprox = 200, minprox = 1)
