@@ -4,9 +4,9 @@ setGeneric("ggscaleRanges",
 ## If it is a GRanges/GRangesList, convert to IRanges and call again  
 ## NOTE: GenomicRangesORGRangesList AKA GenomicRanges_OR_GenomicRangesList was also called GenomicRanges_OR_GRangesList for a while
 ## Use whichever class name applies for current env
-GRGRL_AKAs = c("GenomicRanges_OR_GRangesList", "GenomicRanges_OR_GRangesList","GenomicRangesORGRangesList") # new,old,deprecated 
-GRGRL_ClassName = GRGRL_AKAs[isClass(GRGRL_AKAs)][1]
-setMethod("ggscaleRanges", GRGRL_ClassName, 
+.GRGRL_AKAs = c("GenomicRanges_OR_GRangesList", "GenomicRanges_OR_GRangesList","GenomicRangesORGRangesList") # new,old,deprecated 
+.GRGRL_ClassName = .GRGRL_AKAs[isClass(.GRGRL_AKAs)][1]
+setMethod("ggscaleRanges", .GRGRL_ClassName, 
           function(gm, transFun, flanking = 1000, ...) 
           {
             tryCatch(gm <- unlist(gm), error = function(e) {
@@ -110,7 +110,7 @@ setGeneric("ggscaleDistToRanges",
            function(gm, transFun, flanking = 1000,  ...) standardGeneric("ggscaleDistToRanges"))
 
 
-setMethod("ggscaleDistToRanges", GRGRL_ClassName, #"GenomicRangesORGRangesList", ## convert GRanges to IRanges, call again
+setMethod("ggscaleDistToRanges", .GRGRL_ClassName, #"GenomicRangesORGRangesList", ## convert GRanges to IRanges, call again
           function(gm, transFun, flanking = 1000, ...) 
           {
             tryCatch(gm <- unlist(gm), error = function(e) {
